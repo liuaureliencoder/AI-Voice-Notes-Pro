@@ -1,188 +1,165 @@
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 import whisper
 import threading
 import os
 from pathlib import Path
 
-# Configuration du style "Moderne"
+# Configuration de l'interface
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-# Le texte d'exemple qu'on veut utiliser comme Placeholder
-TEXTE_PLACEHOLDER = "Ex: Réunion sur le projet Python. Vocabulaire : Google, Github, Whisper... je veux que les mots importants soient en gras."
+# Variable globale pour le texte d'aide (Placeholder)
+PLACEHOLDER_TEXT = "Exemple : Réunion technique. Vocabulaire : Google, GitHub, Python. Prioriser la clarté du texte."
 
-class AINotesApp(ctk.CTk):
+class AIGenerator(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        # Fenêtre principale
-        self.title("🎙️ AI Notes Generator - Edition Expert")
+        # Configuration de la fenêtre principale
+        self.title("AI Voice Notes Pro")
         self.geometry("950x650")
 
-        # Configuration du Grid pour la sidebar et le contenu
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # --- SIDEBAR (HISTORIQUE) ---
+        # --- Panneau latéral (Historique) ---
         self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         
-        self.hist_label = ctk.CTkLabel(self.sidebar, text="🕒 Historique", font=("Roboto", 18, "bold"))
+        self.hist_label = ctk.CTkLabel(self.sidebar, text="Historique", font=("Roboto", 18, "bold"))
         self.hist_label.pack(pady=20, padx=10)
         
         self.hist_list = ctk.CTkTextbox(self.sidebar, width=190, font=("Roboto", 11))
         self.hist_list.pack(pady=10, padx=10, fill="both", expand=True)
         self.hist_list.configure(state="disabled")
 
-        # --- MAIN FRAME ---
+        # --- Contenu principal ---
         self.main_frame = ctk.CTkFrame(self, corner_radius=15)
         self.main_frame.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
 
-        # Titre Principal
         self.label_title = ctk.CTkLabel(self.main_frame, text="AI Notes Generator", font=("Roboto", 28, "bold"))
         self.label_title.pack(pady=15)
 
-        # --- RÉGLAGES (LANGUE ET DESCRIPTION) ---
+        # --- Paramètres de transcription ---
         self.settings_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
         self.settings_frame.pack(pady=10, padx=20, fill="x")
 
-        # Label et ComboBox pour la langue
-        self.lang_label = ctk.CTkLabel(self.settings_frame, text="Langue de l'audio :", font=("Roboto", 13))
+        self.lang_label = ctk.CTkLabel(self.settings_frame, text="Langue source :", font=("Roboto", 13))
         self.lang_label.grid(row=0, column=0, padx=10, sticky="w")
         
-        self.lang_choice = ctk.CTkComboBox(self.settings_frame, width=160, values=["Détection Auto", "Français", "English", "Español", "Deutsch"])
+        self.lang_choice = ctk.CTkComboBox(self.settings_frame, width=160, values=["Détection Auto", "Français", "English", "Español"])
         self.lang_choice.grid(row=0, column=1, padx=10)
         self.lang_choice.set("Détection Auto")
 
-        # Label pour la description (Context Prompt)
-        self.prompt_label = ctk.CTkLabel(self.main_frame, text="Décrivez le contexte (noms propres, vocabulaire technique, sujet...) :", font=("Roboto", 13, "bold"))
+        self.prompt_label = ctk.CTkLabel(self.main_frame, text="Contexte de la transcription :", font=("Roboto", 13, "bold"))
         self.prompt_label.pack(pady=(20, 0), padx=40, anchor="w")
 
-        # ---------------------------------------------------------
-        # ZONE DE CONTEXTE AVEC PLACEHOLDER (GHOST TEXT)
-        # ---------------------------------------------------------
+        # --- Zone de saisie avec gestion du Placeholder ---
         self.prompt_entry = ctk.CTkTextbox(self.main_frame, height=100, width=500, font=("Roboto", 12))
         self.prompt_entry.pack(pady=10)
         
-        # 1. On insère le texte par défaut et on le met en gris
-        self.prompt_entry.insert("0.0", TEXTE_PLACEHOLDER)
-        self.prompt_entry.configure(fg_color="#333", text_color="#777") # Gris clair
+        # Initialisation du texte d'aide
+        self.prompt_entry.insert("0.0", PLACEHOLDER_TEXT)
+        self.prompt_entry.configure(text_color="#777") 
         
-        # 2. On attache les événements pour gérer le focus
         self.prompt_entry.bind("<FocusIn>", self.handle_focus_in)
         self.prompt_entry.bind("<FocusOut>", self.handle_focus_out)
-        self.has_real_text = False # Un petit flag pour savoir si l'utilisateur a tapé
+        self.placeholder_is_active = True 
 
-        # --- BOUTONS ---
-        self.btn_select = ctk.CTkButton(self.main_frame, text="📁 Choisir et Lancer la Transcription", 
+        # --- Actions ---
+        self.btn_select = ctk.CTkButton(self.main_frame, text="Sélectionner un fichier et transcrire", 
                                         command=self.start_process, height=45, font=("Roboto", 16, "bold"))
         self.btn_select.pack(pady=15)
 
-        # Bouton Voir (caché au début)
-        self.btn_view = ctk.CTkButton(self.main_frame, text="👁️ Voir la transcription", 
-                                       command=self.open_last_file, fg_color="#27ae60", hover_color="#1e8449")
-        self.btn_view.pack(pady=5)
+        self.btn_view = ctk.CTkButton(self.main_frame, text="Ouvrir le document", 
+                                       command=self.open_last_file, fg_color="#27ae60")
         self.btn_view.pack_forget()
 
-        # --- LOGS ET PROGRESS ---
+        # --- Sortie console et progression ---
         self.log_view = ctk.CTkTextbox(self.main_frame, width=550, height=130, font=("Consolas", 11))
         self.log_view.pack(pady=15)
-        self.add_log("Système prêt. Choisissez un fichier pour commencer.")
+        self.log_event("Application prête.")
 
         self.progress_bar = ctk.CTkProgressBar(self.main_frame, width=500)
         self.progress_bar.set(0)
         self.progress_bar.pack(pady=10)
 
         self.model = None
-        self.last_output = None
+        self.last_output_path = None
 
-    # ---------------------------------------------------------
-    # GESTION DU PLACEHOLDER (LES NOUVELLES FONCTIONS)
-    # ---------------------------------------------------------
+    # --- Gestion de l'interface utilisateur ---
     def handle_focus_in(self, event):
-        """S'exécute quand l'utilisateur clique ou tabule dans la zone."""
-        current_text = self.prompt_entry.get("0.0", "end").strip()
-        if current_text == TEXTE_PLACEHOLDER and not self.has_real_text:
-            self.prompt_entry.delete("0.0", "end") # On efface le placeholder
-            self.prompt_entry.configure(text_color="#eee") # On met la couleur de texte normale (blanc/gris clair)
-            self.has_real_text = True # On marque que l'utilisateur écrit maintenant
+        if self.placeholder_is_active:
+            self.prompt_entry.delete("0.0", "end")
+            self.prompt_entry.configure(text_color="#eee")
+            self.placeholder_is_active = False
 
     def handle_focus_out(self, event):
-        """S'exécute quand l'utilisateur clique ailleurs."""
-        current_text = self.prompt_entry.get("0.0", "end").strip()
-        if current_text == "" or current_text == TEXTE_PLACEHOLDER:
-            # Si c'est vide ou si c'est toujours le placeholder, on le remet
-            self.prompt_entry.delete("0.0", "end")
-            self.prompt_entry.insert("0.0", TEXTE_PLACEHOLDER)
-            self.prompt_entry.configure(text_color="#777") # Couleur "Placeholder" (gris)
-            self.has_real_text = False # Ce n'est plus du texte réel
+        if self.prompt_entry.get("0.0", "end").strip() == "":
+            self.prompt_entry.insert("0.0", PLACEHOLDER_TEXT)
+            self.prompt_entry.configure(text_color="#777")
+            self.placeholder_is_active = True
 
-    # ---------------------------------------------------------
-    # RESTE DU CODE (FONCTIONNALITÉS IA)
-    # ---------------------------------------------------------
-    def add_log(self, text):
+    def log_event(self, message):
         self.log_view.configure(state="normal")
-        self.log_view.insert("end", f"> {text}\n")
+        self.log_view.insert("end", f"> {message}\n")
         self.log_view.see("end")
         self.log_view.configure(state="disabled")
 
+    # --- Traitement des données ---
     def start_process(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Audio", "*.mp3 *.wav *.m4a")])
+        file_path = filedialog.askopenfilename(filetypes=[("Audio files", "*.mp3 *.wav *.m4a")])
         if file_path:
             self.btn_view.pack_forget()
-            threading.Thread(target=self.process_audio, args=(file_path,), daemon=True).start()
+            threading.Thread(target=self.run_transcription, args=(file_path,), daemon=True).start()
 
-    def process_audio(self, path):
+    def run_transcription(self, path):
         try:
             self.btn_select.configure(state="disabled")
-            self.progress_bar.set(0.1)
+            self.progress_bar.set(0.2)
             
-            # Récupération de la langue
-            lang = self.lang_choice.get()
-            if lang == "Détection Auto": lang = None
-            elif lang == "Français": lang = "french"
-            else: lang = lang.lower()
+            # Paramétrage de la langue
+            selected_lang = self.lang_choice.get()
+            lang_code = None if selected_lang == "Détection Auto" else selected_lang.lower()
             
-            # Récupération du Prompt (on ignore le placeholder s'il est là)
-            user_prompt = self.prompt_entry.get("0.0", "end").strip()
-            if user_prompt == TEXTE_PLACEHOLDER:
-                user_prompt = "Transcription précise." # Prompt par défaut si l'utilisateur n'a rien mis
+            # Récupération du prompt
+            input_prompt = "" if self.placeholder_is_active else self.prompt_entry.get("0.0", "end").strip()
 
             if not self.model:
-                self.add_log("Chargement de l'IA Whisper...")
+                self.log_event("Chargement du modèle Whisper...")
                 self.model = whisper.load_model("base")
             
-            self.add_log(f"Traitement lancé pour : {os.path.basename(path)}")
-            self.progress_bar.set(0.4)
+            self.log_event(f"Traitement en cours : {os.path.basename(path)}")
+            self.progress_bar.set(0.5)
             
-            # Transcription
-            result = self.model.transcribe(path, language=lang, initial_prompt=user_prompt)
+            # Exécution de Whisper
+            result = self.model.transcribe(path, language=lang_code, initial_prompt=input_prompt)
             
-            # Sauvegarde
-            output_name = Path(path).stem + "_Notes.md"
-            with open(output_name, "w", encoding="utf-8") as f:
-                f.write(f"# 📝 Compte-rendu : {os.path.basename(path)}\n\n{result['text']}")
+            # Exportation du résultat
+            output_filename = Path(path).stem + "_Notes.md"
+            with open(output_filename, "w", encoding="utf-8") as f:
+                f.write(f"# Compte-rendu : {os.path.basename(path)}\n\n{result['text']}")
             
-            self.last_output = output_name
+            self.last_output_path = output_filename
             self.progress_bar.set(1.0)
-            self.add_log(f"✅ Terminé ! Fichier : {output_name}")
+            self.log_event(f"Transcription terminée. Fichier généré : {output_filename}")
             
-            # Ajout à l'historique
+            # Mise à jour de l'historique
             self.hist_list.configure(state="normal")
-            self.hist_list.insert("0.0", f"• {os.path.basename(output_name)}\n")
+            self.hist_list.insert("0.0", f"- {output_filename}\n")
             self.hist_list.configure(state="disabled")
-            
             self.btn_view.pack(pady=10)
             
-        except Exception as e:
-            self.add_log(f"❌ Erreur : {str(e)}")
+        except Exception as error:
+            self.log_event(f"Erreur système : {str(error)}")
         finally:
             self.btn_select.configure(state="normal")
 
     def open_last_file(self):
-        if self.last_output: os.startfile(self.last_output)
+        if self.last_output_path: 
+            os.startfile(self.last_output_path)
 
 if __name__ == "__main__":
-    app = AINotesApp()
+    app = AIGenerator()
     app.mainloop()
