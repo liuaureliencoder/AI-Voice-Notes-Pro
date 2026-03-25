@@ -1,6 +1,6 @@
 # AI-Voice-Notes-Pro
 A professional-grade AI transcription tool built with Python and OpenAI's Whisper model.
-<img src="screenshot.PNG" alt="Interface du logiciel" width="500">
+<img src="screenshot1.PNG" alt="Interface du logiciel" width="500">
 ## Description
 This application allows users to transcribe audio files locally and privately. It features a modern interface, a smart history sidebar, and context-aware transcription settings.
 
